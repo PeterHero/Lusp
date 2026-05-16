@@ -26,3 +26,29 @@ Content-Length: ...\r\n
 	}
 }
 ```
+
+```
+Content-Length: 2
+
+{"jsonrpc":"2.0","id":1,"method":"textDocument/completion","params":{}}
+```
+
+## Setup
+
+In neovim config:
+```
+-- MY LUA LSP
+vim.filetype.add({
+  extension = {
+    mylua = "mylua",
+  }
+})
+
+vim.lsp.config('lusp', {
+  cmd = { 'lusp' },
+  filetypes = { 'mylua' },
+  root_dir = vim.fs.dirname(vim.api.nvim_buf_get_name(0))
+})
+
+vim.lsp.enable('lusp')
+```
