@@ -83,10 +83,28 @@ object = parseObject <|> parseArray <|> parseString <|> parseNumber
     string' = char '"' *> many (satisfy (/= '"')) <* char '"'
     parseNumber = NumberO <$> number
 
+-- JSON Printing
+showLspMessage :: LspMessage -> String
+showLspMessage (LspMessage _ obj) = "Content-Length: " ++ show (length objString) ++ "\n\n" ++ objString
+  where
+    objString = objString' obj
+    objString' (ObjectO o) = "{" ++ showBySep (map showKeyValue o) "," ++ "}"
+    objString' (ArrayO a) = "[" ++ showBySep (map show a) "," ++ "]"
+    objString' (StringO s) = "\"" ++ s ++ "\""
+    objString' (NumberO n) = show n
+    showKeyValue (a, b) = objString' (StringO a) ++ ":" ++ objString' b
+    showBySep [] _ = ""
+    showBySep [x] _ = x
+    showBySep (x : xs) sep = x ++ sep ++ showBySep xs sep
+
 main :: IO ()
 main = forever $ do
   l1 <- getLine
   l2 <- getLine
   l3 <- getLine
   let msg = runParser parseLspMessage (unlines [l1, l2, l3])
-  print msg
+  case msg of
+    Just (msg', _) -> do
+      print msg'
+      putStrLn $ showLspMessage msg'
+    Nothing -> print "Parsing error"
