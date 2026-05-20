@@ -3,10 +3,10 @@
 module Main where
 
 import Control.Applicative
-import Control.Concurrent (threadDelay)
 import Control.Monad (replicateM)
 import Data.Bifunctor
 import Data.Char (isDigit)
+import Data.List (dropWhileEnd)
 import Data.Maybe (fromMaybe)
 import System.Exit (exitSuccess)
 import System.IO (hFlush, hPrint, hPutStr, hPutStrLn, stderr, stdout)
@@ -74,7 +74,7 @@ sepBy pa ps = ((:) <$> pa <*> many (ps *> pa)) <|> pure []
 
 -- JSON Parsing
 parseLspMessage :: Parser LspMessage
-parseLspMessage = LspMessage <$> len <* string "\r\n" <* string "\r\n" <*> object
+parseLspMessage = LspMessage <$> len <* string "\n" <* string "\n" <*> object
   where
     len = string "Content-Length: " *> number
 
@@ -103,9 +103,6 @@ showLspMessage obj = "Content-Length: " ++ show (length objString) ++ "\r\n\r\n"
     showBySep [] _ = ""
     showBySep [x] _ = x
     showBySep (x : xs) sep = x ++ sep ++ showBySep xs sep
-
--- Tokens
-data Tok = TInt Int | TNLine | TBlanks Int | TFn | TIndent | TDedent | TIdent | TIf | TElse | TLPar | TRPar
 
 -- JSONRpc call methods
 initCall :: State -> [(String, Object)] -> Result
@@ -185,16 +182,20 @@ main = loop (State [] False)
 
 loop :: State -> IO ()
 loop state = do
-  threadDelay 1000
   hPutStrLn stderr ""
   hPutStrLn stderr "[stderr]: Reading input"
   hPutStrLn stderr "[stderr]: ..."
-  header <- getLine
-  noLine <- getLine
+  header' <- getLine
+  let header = dropWhileEnd (== '\r') header'
+  hPutStrLn stderr $ "[stderr]: " ++ header
+  noLine' <- getLine
+  let noLine = dropWhileEnd (== '\r') noLine'
+  hPutStrLn stderr $ "[stderr]: " ++ noLine
 
   case runParser parseLspMessage (unlines [header, noLine, "{}"]) of
     Just (LspMessage len _, _) -> do
       json <- replicateM len getChar
+      hPutStrLn stderr $ "[stderr]: " ++ json
       let msg = runParser parseLspMessage (unlines [header, noLine, json])
       case msg of
         Just (LspMessage _ request, _) -> do
@@ -215,7 +216,9 @@ loop state = do
               exitSuccess
             else
               loop newState
-        Nothing -> print "Parsing error"
+        Nothing -> do
+          hPrint stderr [header, noLine, json]
+          print "Parsing error"
     x -> do
       hPutStr stderr "[stderr]: printing parsed message: "
       hPrint stderr x

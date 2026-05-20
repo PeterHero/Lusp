@@ -1,0 +1,13 @@
+Content-Length: 58
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}Content-Length: 52
+
+{"jsonrpc":"2.0","method":"initialized","params":{}}Content-Length: 154
+
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///test.txt","languageId":"plaintext","version":1,"text":"Hello"}}}Content-Length: 158
+
+{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///test.txt","version":2},"contentChanges":[{"text":"Hello world"}]}}Content-Length: 103
+
+{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":"file:///test.txt"}}}Content-Length: 56
+
+{"jsonrpc":"2.0","id":2,"method":"shutdown","params":{}}
