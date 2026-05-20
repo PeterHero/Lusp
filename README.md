@@ -28,8 +28,8 @@ Content-Length: ...\r\n
 ```
 
 ```
-Content-Length: 2
-
+Content-Length: 2\r
+\r
 {"jsonrpc":"2.0","id":1,"method":"textDocument/completion","params":{}}
 ```
 
@@ -52,3 +52,7 @@ vim.lsp.config('lusp', {
 
 vim.lsp.enable('lusp')
 ```
+
+## Debugging
+
+`socat -v TCP-LISTEN:9999,fork EXEC:"lusp`

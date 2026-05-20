@@ -3,10 +3,13 @@
 module Main where
 
 import Control.Applicative
+import Control.Concurrent (threadDelay)
+import Control.Monad (replicateM)
 import Data.Bifunctor
 import Data.Char (isDigit)
 import Data.Maybe (fromMaybe)
-import System.IO (hPrint, hPutStr, hPutStrLn, stderr)
+import System.Exit (exitSuccess)
+import System.IO (hFlush, hPrint, hPutStr, hPutStrLn, stderr, stdout)
 
 data LspMessage = LspMessage Int Object deriving (Show)
 
@@ -71,7 +74,7 @@ sepBy pa ps = ((:) <$> pa <*> many (ps *> pa)) <|> pure []
 
 -- JSON Parsing
 parseLspMessage :: Parser LspMessage
-parseLspMessage = LspMessage <$> len <* char '\n' <* char '\n' <*> object
+parseLspMessage = LspMessage <$> len <* string "\r\n" <* string "\r\n" <*> object
   where
     len = string "Content-Length: " *> number
 
@@ -88,7 +91,7 @@ object = parseObject <|> parseArray <|> parseString <|> parseNumber <|> parseBoo
 
 -- JSON Printing
 showLspMessage :: Object -> String
-showLspMessage obj = "Content-Length: " ++ show (length objString) ++ "\n\n" ++ objString
+showLspMessage obj = "Content-Length: " ++ show (length objString) ++ "\r\n\r\n" ++ objString
   where
     objString = objString' obj
     objString' (ObjectO o) = "{" ++ showBySep (map showKeyValue o) "," ++ "}"
@@ -108,20 +111,32 @@ data Tok = TInt Int | TNLine | TBlanks Int | TFn | TIndent | TDedent | TIdent | 
 initCall :: State -> [(String, Object)] -> Result
 initCall state _ = Right $ (,) state $ ObjectO [("capabilities", ObjectO [("textDocumentSync", ObjectO [("openClose", BoolO True), ("change", NumberO 1)])])]
 
+initialized :: State -> [(String, Object)] -> Result
+initialized state _ = Right (state, ObjectO [])
+
 didOpen :: State -> [(String, Object)] -> Result
 didOpen state msg = case lookup "params" msg of
-  Just (ObjectO [("textDocument", ObjectO [("uri", StringO uri), ("languageId", _), ("version", _), ("text", StringO text)])]) -> Right $ (,) state {documents = set uri text (documents state)} $ ObjectO []
+  Just (ObjectO [("textDocument", ObjectO document)]) -> case lookup "text" document of
+    Just (StringO text) -> case lookup "uri" document of
+      Just (StringO uri) -> Right $ (,) state {documents = set uri text (documents state)} $ ObjectO []
+      _ -> Left "textDocument/didOpen wrong or no uri parameter"
+    _ -> Left "textDocument/didOpen wrong or no text parameter"
   _ -> Left "textDocument/didOpen received wrong parameters"
 
 didChange :: State -> [(String, Object)] -> Result
 didChange state msg = case lookup "params" msg of
-  Just (ObjectO [("textDocument", ObjectO [("uri", StringO uri), ("version", _)]), ("contentChanges", ArrayO [ObjectO [("text", StringO text)]])]) -> Right $ (,) state {documents = set uri text (documents state)} $ ObjectO []
+  Just (ObjectO [("textDocument", ObjectO document), ("contentChanges", ArrayO [ObjectO [("text", StringO text)]])]) -> case lookup "uri" document of
+    Just (StringO uri) -> Right $ (,) state {documents = set uri text (documents state)} $ ObjectO []
+    _ -> Left "textDocument/didChange wrong or none uri parameter"
   _ -> Left "textDocument/didChange received wrong parameters"
 
 didClose :: State -> [(String, Object)] -> Result
 didClose state msg = case lookup "params" msg of
   Just (ObjectO [("textDocument", ObjectO [("uri", StringO uri)])]) -> Right $ (,) state {documents = rmv uri (documents state)} $ ObjectO []
   _ -> Left "textDocument/didClose received wrong parameters"
+
+shutdownCall :: State -> [(String, Object)] -> Result
+shutdownCall state _ = Right (state {shutdown = True}, ObjectO [])
 
 okO :: [(String, Object)] -> Object -> Object
 okO msg obj = ObjectO [("jsonrpc", StringO "2.0"), ("id", idO), ("result", obj)]
@@ -143,6 +158,8 @@ switch :: State -> Object -> (State, Object)
 switch state msg = case msg of
   ObjectO obj -> case lookup "method" obj of
     Just (StringO "initialize") -> retToMsg state obj initCall
+    Just (StringO "initialized") -> retToMsg state obj initialized
+    Just (StringO "shutdown") -> retToMsg state obj shutdownCall
     Just (StringO "textDocument/didOpen") -> retToMsg state obj didOpen
     Just (StringO "textDocument/didChange") -> retToMsg state obj didChange
     Just (StringO "textDocument/didClose") -> retToMsg state obj didClose
@@ -157,27 +174,49 @@ set k v = ((k, v) :) . filter ((/= k) . fst)
 rmv :: (Eq k) => k -> [(k, v)] -> [(k, v)]
 rmv k = filter ((/= k) . fst)
 
-newtype State = State
-  { documents :: [(String, String)]
+data State = State
+  { documents :: [(String, String)],
+    shutdown :: Bool
   }
   deriving (Show)
 
 main :: IO ()
-main = loop (State [])
+main = loop (State [] False)
 
 loop :: State -> IO ()
 loop state = do
-  l1 <- getLine
-  l2 <- getLine
-  l3 <- getLine
-  let msg = runParser parseLspMessage (unlines [l1, l2, l3])
-  case msg of
-    Just (LspMessage _ request, _) -> do
-      let (newState, response) = switch state request
-      hPutStr stderr "[stderr]: "
-      hPrint stderr newState
-      case response of
-        ObjectO [_, _, ("response", ObjectO [])] -> hPutStrLn stderr "[stderr]: No response"
-        _ -> putStrLn $ showLspMessage response
-      loop newState
-    Nothing -> print "Parsing error"
+  threadDelay 1000
+  hPutStrLn stderr ""
+  hPutStrLn stderr "[stderr]: Reading input"
+  hPutStrLn stderr "[stderr]: ..."
+  header <- getLine
+  noLine <- getLine
+
+  case runParser parseLspMessage (unlines [header, noLine, "{}"]) of
+    Just (LspMessage len _, _) -> do
+      json <- replicateM len getChar
+      let msg = runParser parseLspMessage (unlines [header, noLine, json])
+      case msg of
+        Just (LspMessage _ request, _) -> do
+          let (newState, response) = switch state request
+          hPutStrLn stderr ""
+          hPutStrLn stderr "[stderr]: Printing state"
+          hPutStr stderr "[stderr]: "
+          hPrint stderr newState
+          case response of
+            ObjectO [_, _, ("result", ObjectO [])] -> hPutStrLn stderr "[stderr]: No response"
+            _ -> do
+              putStr $ showLspMessage response
+              hFlush stdout
+              hPutStrLn stderr ""
+          if shutdown newState
+            then do
+              hPutStrLn stderr "[stderr]: shutting down"
+              exitSuccess
+            else
+              loop newState
+        Nothing -> print "Parsing error"
+    x -> do
+      hPutStr stderr "[stderr]: printing parsed message: "
+      hPrint stderr x
+      print "Wrong header"
