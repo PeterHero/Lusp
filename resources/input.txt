@@ -1,0 +1,6 @@
+Content-Length: 1000
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":1,"method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///main.foo","languageId":"foo","version":1,"text":"print('hello')"}}}
+{"jsonrpc":"2.0","id":1,"method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///main.foo","version":2},"contentChanges":[{"text":"new full text"}]}}
+{"jsonrpc":"2.0","id":1,"method":"textDocument/didClose","params":{"textDocument":{"uri":"file:///main.foo"}}}
